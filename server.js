@@ -53,43 +53,95 @@ admin.initializeApp({
 
 const db = admin.firestore();
 
+// ============================================================
+// TEST ROUTE
+// ============================================================
+
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    message: 'ZOYO Admin API is running!',
+    time: new Date().toISOString()
+  });
+});
+
+// ============================================================
+// GET ALL DATA
+// ============================================================
+
 app.get('/api/all-data', async (req, res) => {
   try {
-    const [users, rooms, reports, blockedUsers] = await Promise.all([
-      db.collection('users').get(),
-      db.collection('rooms').get(),
-      db.collection('reports').get(),
-      db.collection('blockedUsers').get()
+    // Try to get data from Firestore
+    const [usersSnapshot, roomsSnapshot, reportsSnapshot, blockedUsersSnapshot] = await Promise.all([
+      db.collection('users').limit(100).get(),
+      db.collection('rooms').limit(100).get(),
+      db.collection('reports').limit(100).get(),
+      db.collection('blockedUsers').limit(100).get()
     ]);
 
+    const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const rooms = roomsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const reports = reportsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const blacklist = blockedUsersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
     res.json({
-      users: users.docs.map(doc => ({ id: doc.id, ...doc.data() })),
-      rooms: rooms.docs.map(doc => ({ id: doc.id, ...doc.data() })),
-      reports: reports.docs.map(doc => ({ id: doc.id, ...doc.data() })),
-      blacklist: blockedUsers.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      success: true,
+      users: users,
+      rooms: rooms,
+      reports: reports,
+      blacklist: blacklist,
+      counts: {
+        users: users.length,
+        rooms: rooms.length,
+        reports: reports.length,
+        blacklist: blacklist.length
+      }
     });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.error('Error fetching data:', e.message);
+    res.status(500).json({ 
+      success: false, 
+      error: e.message,
+      message: 'Failed to fetch data from Firestore'
+    });
   }
 });
+
+// ============================================================
+// BAN USER
+// ============================================================
 
 app.post('/api/ban-user/:id', async (req, res) => {
   try {
-    await db.collection('users').doc(req.params.id).update({ isBanned: true, bannedAt: new Date().toISOString() });
-    res.json({ success: true });
+    await db.collection('users').doc(req.params.id).update({
+      isBanned: true,
+      bannedAt: new Date().toISOString()
+    });
+    res.json({ success: true, message: `User ${req.params.id} banned` });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 
+// ============================================================
+// UNBAN USER
+// ============================================================
+
 app.post('/api/unban-user/:id', async (req, res) => {
   try {
-    await db.collection('users').doc(req.params.id).update({ isBanned: false, bannedAt: null });
-    res.json({ success: true });
+    await db.collection('users').doc(req.params.id).update({
+      isBanned: false,
+      bannedAt: null
+    });
+    res.json({ success: true, message: `User ${req.params.id} unbanned` });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ success: false, error: e.message });
   }
 });
+
+// ============================================================
+// ADD TO BLACKLIST
+// ============================================================
 
 app.post('/api/blacklist/:id', async (req, res) => {
   try {
@@ -98,19 +150,78 @@ app.post('/api/blacklist/:id', async (req, res) => {
       reason: req.body.reason || 'Admin action',
       addedAt: new Date().toISOString()
     });
-    res.json({ success: true });
+    res.json({ success: true, message: `User ${req.params.id} added to blacklist` });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ success: false, error: e.message });
   }
 });
+
+// ============================================================
+// REMOVE FROM BLACKLIST
+// ============================================================
 
 app.delete('/api/blacklist/:id', async (req, res) => {
   try {
     await db.collection('blockedUsers').doc(req.params.id).delete();
-    res.json({ success: true });
+    res.json({ success: true, message: `User ${req.params.id} removed from blacklist` });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(500).json({ success: false, error: e.message });
   }
+});
+
+// ============================================================
+// BAN ROOM
+// ============================================================
+
+app.post('/api/ban-room/:id', async (req, res) => {
+  try {
+    await db.collection('rooms').doc(req.params.id).update({
+      isBanned: true,
+      bannedAt: new Date().toISOString()
+    });
+    res.json({ success: true, message: `Room ${req.params.id} banned` });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ============================================================
+// UNBAN ROOM
+// ============================================================
+
+app.post('/api/unban-room/:id', async (req, res) => {
+  try {
+    await db.collection('rooms').doc(req.params.id).update({
+      isBanned: false,
+      bannedAt: null
+    });
+    res.json({ success: true, message: `Room ${req.params.id} unbanned` });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+// ============================================================
+// GET USER PROFILE
+// ============================================================
+
+app.get('/api/user/:id', async (req, res) => {
+  try {
+    const doc = await db.collection('users').doc(req.params.id).get();
+    if (!doc.exists) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+    res.json({ success: true, user: { id: doc.id, ...doc.data() } });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 ZOYO Admin API running on port ${PORT}`);
+  console.log(`📍 Test: https://zoyo-admin-api-v2.onrender.com/`);
+});  }
 });
 
 app.post('/api/ban-room/:id', async (req, res) => {
